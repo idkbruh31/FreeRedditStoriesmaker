@@ -1,0 +1,4 @@
+ollama
+piper-tts
+moviepy
+imageio-ffmpeg
