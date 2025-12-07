@@ -4,7 +4,7 @@ Generate full **TikTok / Shorts-style Reddit story videos** (AITA, drama, myster
 No API keys. No rate limits. No cloud.  
 Runs completely offline using **Ollama**, **Piper TTS**, and **FFmpeg**.
 
-https://github.com/OLD_USERNAME/FreeRedditStoriesmaker
+https://github.com/idkbruh31/FreeRedditStoriesmaker
 
 ---
 
