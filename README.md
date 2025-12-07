@@ -30,5 +30,5 @@ Perfect for:
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/OLD_USERNAME/FreeRedditStoriesmaker.git
+git clone https://github.com/idkbruh31/FreeRedditStoriesmaker.git
 cd FreeRedditStoriesmaker
