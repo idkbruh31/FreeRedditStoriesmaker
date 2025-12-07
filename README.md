@@ -1,4 +1,4 @@
-# 🚀 Free Reddit Story Maker — Local & Unlimited
+#  Free Reddit Story Maker — Local & Unlimited
 
 Generate full **TikTok / Shorts-style Reddit story videos** (AITA, drama, mystery) using **ONLY local tools**.
 No API keys. No rate limits. No cloud.  
@@ -8,14 +8,14 @@ https://github.com/OLD_USERNAME/FreeRedditStoriesmaker
 
 ---
 
-## ✨ Features
+##  Features
 
-- 🧠 **Local AI story generation** (Ollama: llama3.1:8b by default)
-- 🔊 **Offline narration** with Piper TTS
-- 🎥 **Automatic video rendering** (1080×1920 vertical)
-- 🎞 **ASS subtitles** generated automatically
-- ♾️ **Unlimited usage** — fully local, no API calls
-- 🖥 Extremely lightweight CLI — works on any machine
+- **Local AI story generation** (Ollama: llama3.1:8b by default)
+-  **Offline narration** with Piper TTS
+-  **Automatic video rendering** (1080×1920 vertical)
+-  **ASS subtitles** generated automatically
+-  **Unlimited usage** — fully local, no API calls
+-  Extremely lightweight CLI — works on any machine
 
 Perfect for:
 - TikTok storytime channels  
@@ -26,7 +26,7 @@ Perfect for:
 
 ---
 
-## 📦 Installation
+##  Installation
 
 ### 1. Clone the repo
 ```bash
