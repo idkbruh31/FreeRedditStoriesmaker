@@ -1,6 +1,4 @@
-Got it. I’ll rough it up, loosen the polish, and add a few “this was clearly written by a real human” cracks without making it unreadable.
 
-Here’s a version that sounds more like you, not a marketing page.
 
 Free Reddit Story Maker (local + unlimited)
 
