@@ -1,34 +1,51 @@
-#  Free Reddit Story Maker — Local & Unlimited
+Got it. I’ll rough it up, loosen the polish, and add a few “this was clearly written by a real human” cracks without making it unreadable.
 
-Generate full **TikTok / Shorts-style Reddit story videos** (AITA, drama, mystery) using **ONLY local tools**.
-No API keys. No rate limits. No cloud.  
-Runs completely offline using **Ollama**, **Piper TTS**, and **FFmpeg**.
+Here’s a version that sounds more like you, not a marketing page.
 
+Free Reddit Story Maker (local + unlimited)
+
+Make full TikTok / Shorts reddit story vids (AITA, drama, random bs stories) using ONLY local stuff.
+No API keys, no limits, no cloud, no paid nonsense.
+
+Runs fully offline with Ollama, Piper TTS, and FFmpeg.
+
+Repo:
 https://github.com/idkbruh31/FreeRedditStoriesmaker
 
----
+What it does
 
-##  Features
+Generates reddit-style stories locally (uses Ollama, default is llama3.1:8b)
 
-- **Local AI story generation** (Ollama: llama3.1:8b by default)
--  **Offline narration** with Piper TTS
--  **Automatic video rendering** (1080×1920 vertical)
--  **ASS subtitles** generated automatically
--  **Unlimited usage** — fully local, no API calls
--  Extremely lightweight CLI — works on any machine
+Offline text-to-speech with Piper (sounds decent, not robotic)
 
-Perfect for:
-- TikTok storytime channels  
-- YouTube Shorts creators  
-- Reels / vertical content  
-- AI storytelling projects  
-- Anyone who wants a *zero-cost pipeline*  
+Auto renders vertical vids (1080x1920, shorts ready)
 
----
+Makes subtitles automatically (ASS format)
 
-##  Installation
+Unlimited usage since it’s all local
 
-### 1. Clone the repo
-```bash
+Simple CLI, no bloated UI or setup hell
+
+Basically you run it and it spits out a finished short.
+
+Who this is for
+
+TikTok storytime pages
+
+YouTube Shorts grinders
+
+Reels / vertical content
+
+AI story experiments
+
+Anyone who doesn’t wanna pay per API call just to test ideas
+
+If you want a zero-cost pipeline, this is it.
+
+Installation
+1. Clone the repo
 git clone https://github.com/idkbruh31/FreeRedditStoriesmaker.git
 cd FreeRedditStoriesmaker
+
+
+(yeah that’s literally it for now, more docs soon)
