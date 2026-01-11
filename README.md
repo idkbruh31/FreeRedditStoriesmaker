@@ -14,7 +14,7 @@ What it does
 
 Generates reddit-style stories locally (uses Ollama, default is llama3.1:8b)
 
-Offline text-to-speech with Piper (sounds decent, not robotic)
+Offline text-to-speech with Piper (sounds goodf)
 
 Auto renders vertical vids (1080x1920, shorts ready)
 
@@ -22,21 +22,7 @@ Makes subtitles automatically (ASS format)
 
 Unlimited usage since it’s all local
 
-Simple CLI, no bloated UI or setup hell
-
 Basically you run it and it spits out a finished short.
-
-Who this is for
-
-TikTok storytime pages
-
-YouTube Shorts grinders
-
-Reels / vertical content
-
-AI story experiments
-
-Anyone who doesn’t wanna pay per API call just to test ideas
 
 If you want a zero-cost pipeline, this is it.
 
