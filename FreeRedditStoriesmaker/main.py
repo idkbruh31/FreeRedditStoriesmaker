@@ -1,6 +1,9 @@
-from __future__ import annotations
+# small personal tool to generate vertical story videos
+# ollama -> piper -> ffmpeg + word-by-word subtitles
+# not meant to be a librar
 
 import json
+import os
 import random
 import re
 import shutil
@@ -10,16 +13,19 @@ import traceback
 import wave
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+
+# --- paths / config ----------------------------------------------------------
 
 
-def get_app_dir() -> Path:
+def get_base_dir() -> Path:
+    """Figure out where the app lives (dev vs frozen)."""
     if getattr(sys, "frozen", False):
+        # pyinstaller etc.
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
-APP_DIR = get_app_dir()
+APP_DIR = get_base_dir()
 
 VIDEOS_DIR = APP_DIR / "videos"
 VOICES_DIR = APP_DIR / "voices"
@@ -31,7 +37,7 @@ VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
 FPS = 30
 
-OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "llama3.1:8b"  # change if you prefer a different one
 
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x1F\x7F]")
 CURRENCY_RE = re.compile(r"\$([0-9]+)")
@@ -41,14 +47,18 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def sanitize_json_block(text: str) -> str:
+# --- story generation --------------------------------------------------------
+
+
+def _strip_control_chars(text: str) -> str:
     return CONTROL_CHARS_RE.sub("", text)
 
 
-def create_fallback_story(length: str, custom_topic: Optional[str] = None) -> dict:
+def make_fallback_story(length: str, custom_topic: str | None = None) -> dict:
+    # basic backup so the whole thing doesn't die if ollama is down
     base = "I found something in my partner's phone that changed everything. "
     if custom_topic:
-        base = f"{custom_topic.strip()} "
+        base = custom_topic.strip() + " "
 
     stories = {
         "Short": base + "What I saw shattered my trust in seconds. Now I'm questioning our entire relationship.",
@@ -74,55 +84,60 @@ def create_fallback_story(length: str, custom_topic: Optional[str] = None) -> di
     }
 
 
-def generate_story(mode: str, length: str = "Medium", custom_topic: Optional[str] = None) -> dict:
+def ask_ollama_for_story(mode: str, length: str = "Medium", custom_topic: str | None = None) -> dict:
+    """
+    Ask Ollama to spit out a story in JSON format.
+    If anything goes sideways, returns a simple fallback story.
+    """
+    # rough word targets; not super important
     word_targets = {"Short": 180, "Medium": 360, "Long": 700}
     target_words = word_targets.get(length, 360)
 
     if mode == "aita":
         brief = f"""
-Write a first-person AITA-style post.
+Write a first-person AITA-style story.
 
-Constraints:
-- {target_words} words (roughly).
-- Start immediately with the situation and the hook (no greetings).
-- Include ages, time frames, a specific setting, and a few lines of dialogue.
-- Make it morally grey; both sides should feel plausible.
-- Escalate to one decisive moment.
-- End on one short line that invites debate.
+Rough guidelines:
+- about {target_words} words
+- start straight with the situation (no greetings / intros)
+- include ages, time frames, a concrete setting, and some dialogue
+- make it morally grey (both sides arguable)
+- build up to a decisive moment
+- end with one short line that invites debate
 """
     elif mode == "relationships":
         brief = f"""
-Write a first-person relationship drama.
+Write a first-person relationship drama story.
 
-Constraints:
-- {target_words} words (roughly).
-- Open with a strong emotional first sentence.
-- Modern details (texts, screenshots, calls, money, family pressure, etc.).
-- 2–3 lines of dialogue.
-- Keep it realistic and specific, not melodramatic.
-- End on a sharp final line that makes people argue.
+Rough guidelines:
+- about {target_words} words
+- open with a strong emotional line
+- include modern stuff (texts, screenshots, calls, money, family pressure, etc.)
+- 2–3 lines of dialogue
+- keep it realistic and specific (not soap opera)
+- finish on a line that makes people argue
 """
     elif mode == "mystery":
         brief = f"""
-Write a grounded first-person mystery/thriller.
+Write a first-person grounded mystery / thriller.
 
-Constraints:
-- Present-day, realistic (no supernatural).
-- {target_words} words (roughly).
-- Open with a clear “something is wrong” hook.
-- Reveal clues gradually; avoid info-dumps.
-- Include a few concrete scenes/locations and some dialogue.
-- End with a twist that re-frames earlier details.
+Rough guidelines:
+- present-day, realistic (no ghosts, no magic)
+- about {target_words} words
+- start with a “something is wrong” vibe
+- reveal clues gradually (no giant info-dumps)
+- use a few concrete locations and some dialogue
+- end with a twist that changes how earlier details look
 """
     else:
         brief = f"""
 Write a high-engagement first-person story.
 
-Constraints:
-- {target_words} words (roughly).
-- Hook early, build tension, include at least one twist.
-- Keep it grounded and plausible.
-- End with a line that invites opinions.
+Rough guidelines:
+- about {target_words} words
+- hook early, build tension, have at least one twist
+- keep it grounded and plausible
+- end with a line that invites opinions
 """
 
     if custom_topic:
@@ -130,7 +145,7 @@ Constraints:
 
     prompt = f"""{brief}
 
-Output ONLY valid JSON with exactly these keys:
+Reply with ONLY valid JSON in this exact structure:
 {{
   "title": "...",
   "story": "...",
@@ -141,72 +156,97 @@ Output ONLY valid JSON with exactly these keys:
     try:
         import ollama  # type: ignore
 
-        response = ollama.chat(
+        resp = ollama.chat(
             model=OLLAMA_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
-        content = response["message"]["content"]
+        content = resp["message"]["content"]
 
+        # models sometimes wrap JSON with junk before/after; try to slice it out
         start = content.find("{")
         end = content.rfind("}") + 1
         if start == -1 or end <= start:
-            raise ValueError("No JSON block found")
+            raise ValueError("Didn't find a JSON-looking block in Ollama output")
 
-        data = json.loads(sanitize_json_block(content[start:end]))
-        for k in ("title", "story", "caption", "hashtags"):
-            if k not in data:
-                raise ValueError(f"Missing key: {k}")
+        raw_json = _strip_control_chars(content[start:end])
+        data = json.loads(raw_json)
+
+        for key in ("title", "story", "caption", "hashtags"):
+            if key not in data:
+                raise ValueError(f"Missing JSON key: {key}")
 
         data["ui_type"] = "story"
         return data
 
     except Exception as e:
-        log(f"Story generation failed, using fallback: {e}")
-        return create_fallback_story(length, custom_topic)
+        log(f"[warn] story generation failed, falling back. reason: {e}")
+        return make_fallback_story(length, custom_topic)
 
 
-def prepare_tts_text(raw: str) -> str:
+def clean_for_tts(raw: str) -> str:
     if not raw:
         return ""
+
     text = str(raw)
+    # turn "$100" into "100 dollars"
     text = CURRENCY_RE.sub(r"\1 dollars", text)
     text = text.replace("$", " dollars ")
+    # squish "!!!???" etc
     text = re.sub(r"[?.!]{2,}", " ", text)
+    # collapse whitespace
     return " ".join(text.split())
 
 
-def detect_piper_voices() -> Dict[str, Path]:
-    voices: Dict[str, Path] = {}
-    for search_dir in (PIPER_DIR, VOICES_DIR, APP_DIR):
-        if not search_dir.exists():
+# --- Piper / TTS stuff -------------------------------------------------------
+
+
+def find_voice_models() -> dict:
+    """
+    Look around a few dirs for .onnx voice models.
+    Returns {pretty_name: Path}.
+    """
+    voices: dict[str, Path] = {}
+
+    for folder in (PIPER_DIR, VOICES_DIR, APP_DIR):
+        if not folder.exists():
             continue
-        for onnx_file in search_dir.rglob("*.onnx"):
+        for onnx_file in folder.rglob("*.onnx"):
+            # make a slightly nicer name out of the filename
             name = onnx_file.stem.replace("-", " ").replace("_", " ").title()
-            voices.setdefault(name, onnx_file)
+            if name not in voices:
+                voices[name] = onnx_file
+
     return voices
 
 
-def find_piper_exe() -> Optional[List[str]]:
+def locate_piper() -> list[str] | None:
+    """
+    Try a bunch of places to find the Piper executable or module.
+    This is a bit hacky but OK for personal use.
+    """
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-    candidates: List[List[str]] = []
+    candidates: list[list[str]] = []
 
     exe = shutil.which("piper")
     if exe:
         candidates.append([exe])
 
+    # a couple of obvious dirs and app-local places
     for loc in (PIPER_DIR, VOICES_DIR, APP_DIR, APP_DIR / "bin", Path.home() / ".local" / "bin"):
         if not loc.exists():
             continue
-        for name in ("piper.exe", "piper", "piper.bin"):
-            p = loc / name
-            if p.exists() and p.is_file():
+        for n in ("piper.exe", "piper", "piper.bin"):
+            p = loc / n
+            if p.is_file():
                 candidates.append([str(p)])
 
+    # fallback: python -m
     candidates.append([sys.executable, "-m", "piper"])
     candidates.append([sys.executable, "-m", "piper_tts"])
 
-    seen = set()
-    uniq: List[List[str]] = []
+    # de-dup
+    seen: set[tuple[str, ...]] = set()
+    uniq: list[list[str]] = []
     for c in candidates:
         t = tuple(c)
         if t not in seen:
@@ -224,33 +264,41 @@ def find_piper_exe() -> Optional[List[str]]:
             if r.returncode == 0:
                 return cmd
         except Exception:
+            # silently ignore; we'll just say "not found" later
             pass
 
     return None
 
 
-def generate_speech(text: str, voice_path: Path, output_path: Path, speed: float = 1.0) -> bool:
+def generate_speech(text: str, voice_path: Path, output_path: Path, speed: float = 1.0) -> None:
+    """
+    Run Piper on the given text and write a wav file.
+    """
+    # keep piper happy: strip weird unicode stuff
     safe_text = " ".join(text.split()).encode("ascii", errors="ignore").decode("ascii")
     safe_text = " ".join(safe_text.split())
     if not safe_text.strip():
         raise RuntimeError("Nothing left to synthesize after cleaning text.")
 
-    piper_cmd = find_piper_exe()
+    piper_cmd = locate_piper()
     if not piper_cmd:
-        raise RuntimeError("Piper CLI not found. Install: pip install piper-tts")
+        raise RuntimeError("Piper CLI not found. Try: pip install piper-tts (or put it on PATH).")
 
     if not voice_path.exists():
         raise RuntimeError(f"Voice model not found: {voice_path}")
 
     json_path = voice_path.with_suffix(".onnx.json")
     if not json_path.exists():
+        # some models use .json instead
         json_path = Path(str(voice_path).replace(".onnx", ".json"))
     if not json_path.exists():
         raise RuntimeError(f"Voice config not found: {json_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # in piper, "length_scale" is sort of inverse of speed
     length_scale = 1.0 / max(0.5, min(2.0, speed))
+
     cmd = piper_cmd + [
         "--model", str(voice_path),
         "--config", str(json_path),
@@ -270,20 +318,28 @@ def generate_speech(text: str, voice_path: Path, output_path: Path, speed: float
         creationflags=creation_flags,
     )
 
-    if r.returncode == 0 and output_path.exists() and output_path.stat().st_size > 1000:
-        return True
+    if r.returncode != 0:
+        raise RuntimeError(f"Piper TTS failed: {(r.stderr or '')[:300]}")
 
-    raise RuntimeError(f"Piper TTS failed: {(r.stderr or '')[:300]}")
+    if not output_path.exists() or output_path.stat().st_size < 1000:
+        raise RuntimeError("Piper TTS produced an empty/tiny file.")
 
 
-def create_word_timings(text: str, audio_duration: float) -> List[Tuple[str, float, float]]:
+# --- subtitles / timings -----------------------------------------------------
+
+
+def fake_word_timings(text: str, audio_duration: float):
+    """
+    Not actual alignment, just evenly spread words over audio length
+    with a bit of extra time on punctuation.
+    """
     words = text.split()
     if not words or audio_duration <= 0:
         return []
 
     wps = len(words) / audio_duration
-    timings: List[Tuple[str, float, float]] = []
-    t = 0.1
+    timings = []
+    t = 0.1  # tiny offset so it doesn't start instantly
 
     for word in words:
         clean = word.strip(".,!?;:'\"")
@@ -304,16 +360,19 @@ def create_word_timings(text: str, audio_duration: float) -> List[Tuple[str, flo
     return [(w, s * scale, e * scale) for (w, s, e) in timings]
 
 
-def seconds_to_ass_time(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    cs = int((seconds - int(seconds)) * 100)
+def seconds_to_ass_time(sec: float) -> str:
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
+    cs = int((sec - int(sec)) * 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-def create_subtitles(text: str, audio_duration: float, output_path: Path) -> None:
-    word_timings = create_word_timings(text, audio_duration)
+def write_ass_subtitles(text: str, audio_duration: float, output_path: Path) -> None:
+    """
+    Build an .ass file with a word-by-word highlight effect.
+    """
+    word_timings = fake_word_timings(text, audio_duration)
     if not word_timings:
         return
 
@@ -340,13 +399,14 @@ def create_subtitles(text: str, audio_duration: float, output_path: Path) -> Non
         s = s.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
         return s
 
-    chunks: List[List[Tuple[str, float, float]]] = []
-    cur: List[Tuple[str, float, float]] = []
+    chunks: list[list[tuple[str, float, float]]] = []
+    cur: list[tuple[str, float, float]] = []
 
     for word, start, end in word_timings:
         cur.append((word, start, end))
         stripped = word.rstrip(".,!?;:")
         has_punct = word != stripped
+        # arbitrary-ish rules so lines aren't too long or too short
         if len(cur) >= 2 and (has_punct or len(cur) >= 3):
             chunks.append(cur)
             cur = []
@@ -361,10 +421,13 @@ def create_subtitles(text: str, audio_duration: float, output_path: Path) -> Non
             for i, (w, _, _) in enumerate(chunk):
                 w = esc(w)
                 if i == idx:
+                    # active word
                     parts.append("{\\c&H00E5FF&\\3c&H0099FF&\\fscx120\\fscy120\\b1\\blur2}" + w + "{\\r}")
                 elif i < idx:
+                    # already spoken
                     parts.append("{\\c&HDDDDDD&\\alpha&H60&}" + w + "{\\r}")
                 else:
+                    # upcoming
                     parts.append("{\\c&HFFFFFF&}" + w + "{\\r}")
 
             st = seconds_to_ass_time(start)
@@ -375,7 +438,13 @@ def create_subtitles(text: str, audio_duration: float, output_path: Path) -> Non
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def compose_final_video(story_text: str, audio_path: Path, video_bg: Path, output_path: Path) -> bool:
+# --- video composition -------------------------------------------------------
+
+
+def render_video(story_text: str, audio_path: Path, video_bg: Path, output_path: Path) -> None:
+    """
+    Use ffmpeg (via imageio-ffmpeg to locate it) to glue everything together.
+    """
     try:
         import imageio_ffmpeg  # type: ignore
     except Exception as e:
@@ -387,7 +456,7 @@ def compose_final_video(story_text: str, audio_path: Path, video_bg: Path, outpu
             rate = wf.getframerate()
             duration = frames / float(rate) if rate > 0 else 0.0
     except Exception as e:
-        raise RuntimeError(f"Failed to read audio: {audio_path}: {e}") from e
+        raise RuntimeError(f"Failed to read audio {audio_path}: {e}") from e
 
     if duration <= 0:
         raise RuntimeError(f"Invalid audio duration: {duration}")
@@ -397,7 +466,7 @@ def compose_final_video(story_text: str, audio_path: Path, video_bg: Path, outpu
     run_dir.mkdir(parents=True, exist_ok=True)
 
     subs_path = run_dir / "subs.ass"
-    create_subtitles(story_text, duration, subs_path)
+    write_ass_subtitles(story_text, duration, subs_path)
 
     subs_escaped = subs_path.name.replace("\\", "\\\\").replace(":", "\\:")
     vf = (
@@ -406,7 +475,8 @@ def compose_final_video(story_text: str, audio_path: Path, video_bg: Path, outpu
     )
 
     cmd = [
-        ffmpeg, "-y",
+        ffmpeg,
+        "-y",
         "-stream_loop", "-1", "-i", str(video_bg),
         "-i", str(audio_path),
         "-vf", vf,
@@ -423,12 +493,15 @@ def compose_final_video(story_text: str, audio_path: Path, video_bg: Path, outpu
 
     r = subprocess.run(cmd, capture_output=True, cwd=str(run_dir))
     if r.returncode != 0 or not output_path.exists():
-        return False
-    return True
+        raise RuntimeError(f"ffmpeg failed: {(r.stderr or '')[:300]}")
 
 
-def choose_mode() -> str:
-    log("\nChoose story type:")
+# --- CLI / main --------------------------------------------------------------
+
+
+def pick_mode() -> str:
+    log("")
+    log("Choose story type:")
     log("  1) AITA")
     log("  2) Relationship drama")
     log("  3) Mystery / thriller")
@@ -452,22 +525,23 @@ def main() -> None:
     bg_video = random.choice(bg_candidates)
     log(f"Background    : {bg_video.name}")
 
-    voices = detect_piper_voices()
+    voices = find_voice_models()
     if not voices:
         raise SystemExit(f"No Piper voices (.onnx) found in: {VOICES_DIR} or {PIPER_DIR}")
 
+    # for now just pick the first one
     voice_name, voice_path = next(iter(voices.items()))
     log(f"Voice         : {voice_name} -> {voice_path.name}")
 
-    mode = choose_mode()
-    custom_topic = input("\nCustom topic (optional): ").strip() or None
-    length = "Medium"
+    mode = pick_mode()
+    custom_topic = input("\nCustom topic (optional, press Enter to skip): ").strip() or None
+    length = "Medium"  # could make this interactive too, but meh
 
     log("Generating story...")
-    story = generate_story(mode=mode, length=length, custom_topic=custom_topic)
+    story = ask_ollama_for_story(mode=mode, length=length, custom_topic=custom_topic)
 
     raw_story = story.get("story", "")
-    tts_text = prepare_tts_text(raw_story)
+    tts_text = clean_for_tts(raw_story)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = OUTPUT_DIR / f"{ts}_{mode}"
@@ -485,9 +559,11 @@ def main() -> None:
         raise SystemExit(1)
 
     log("Rendering video...")
-    ok = compose_final_video(tts_text, audio_path, bg_video, video_path)
-    if not ok:
-        raise SystemExit("Video composition failed.")
+    try:
+        render_video(tts_text, audio_path, bg_video, video_path)
+    except Exception as e:
+        log(f"Video composition failed: {e}")
+        raise SystemExit(1)
 
     meta = {
         "title": story.get("title", ""),
